@@ -1,4 +1,5 @@
 import cProfile
+import copy
 
 input = """seeds: 1482445116 339187393 3210489476 511905836 42566461 51849137 256584102 379575844 3040181568 139966026 4018529087 116808249 2887351536 89515778 669731009 806888490 2369242654 489923931 2086168596 82891253
 
@@ -245,40 +246,6 @@ humidity-to-location map:
 4167017440 2569399815 93547200
 4001649801 3362221552 30579181"""
 
-input = """seeds: 79 14 55 13
-
-seed-to-soil map:
-50 98 2
-52 50 48
-
-soil-to-fertilizer map:
-0 15 37
-37 52 2
-39 0 15
-
-fertilizer-to-water map:
-49 53 8
-0 11 42
-42 0 7
-57 7 4
-
-water-to-light map:
-88 18 7
-18 25 70
-
-light-to-temperature map:
-45 77 23
-81 45 19
-68 64 13
-
-temperature-to-humidity map:
-0 69 1
-1 0 69
-
-humidity-to-location map:
-60 56 37
-56 93 4"""
-
 
 def map_seed_in_map(seed, map):
     for entry in map:
@@ -307,27 +274,121 @@ def parse_maps(maps_out, seeds_out):
         mapping = {"dest_start":dest_start, "src_start":src_start, "range":rangee}
         maps_out[-1].append(mapping)
 
+# merge two maps into a single map that does both the mappings
+def merge_two_maps(first_map, second_map, map_out):
+    for fm in first_map:
+        if "removed" in fm:
+            continue # already split this one - ignore it
+        for sm in second_map:
+            if "removed" in fm:
+                break # already split this one - ignore it
+            if "removed" in sm:
+                continue # already split this one - ignore it
+            # do these mappings overlap?
+            fd_s = fm["dest_start"]
+            fd_e = fm["dest_start"] + fm["range"]
+            ss_s = sm["src_start"]
+            ss_e = sm["src_start"] + sm["range"]
+            if fd_e < ss_s or ss_e < fd_s:
+                # no overlap
+                continue
 
-def map_seeds(maps, seeds):
-    lowest_mapped_seed = 99999999999999999
-    processed_seed_count = 0
-    for seed in seeds:
-        for mapped_seed in range(seed["start"], seed["start"]+seed["range"]):
-            #print(f"{mapped_seed}=>")
-            for map in maps:
-                mapped_seed = map_seed_in_map(mapped_seed, map)
+            # remove the original maps
+            fm["removed"] = True
+            sm["removed"] = True
 
-            #print(f"=>{mapped_seed}")
-            lowest_mapped_seed = min(lowest_mapped_seed, mapped_seed)
-        processed_seed_count += seed["range"]
-        print(f"Processed {processed_seed_count} seeds...")
-    print(lowest_mapped_seed)
+            # adjust the source maps to still contain the non-overlaps
+            f_start_overlap_offset = 0
+            s_start_overlap_offset = 0
+            if fd_s < ss_s:
+                # first non-overlap
+                range_out = ss_s-fd_s
+                first_map.append({"dest_start":fm["dest_start"], "src_start":fm["src_start"], "range":range_out})
+                f_start_overlap_offset = range_out
+                s_start_overlap_offset = 0
+            elif fd_s > ss_s:
+                # first non-overlap
+                range_out = fd_s-ss_s
+                second_map.append({"dest_start":sm["dest_start"], "src_start":sm["src_start"], "range":range_out})
+                f_start_overlap_offset = 0
+                s_start_overlap_offset = range_out
+
+            f_end_overlap_offset = fm["range"]
+            s_end_overlap_offset = sm["range"]
+            if fd_e < ss_e:
+                # second non-overlap
+                range_out = ss_e-fd_e
+                second_map.append({"dest_start":sm["dest_start"]+sm["range"]-range_out, "src_start":ss_e-range_out, "range":range_out})
+                f_end_overlap_offset = fm["range"]
+                s_end_overlap_offset = sm["range"]-range_out
+            elif fd_e > ss_e:
+                # second non-overlap
+                range_out = fd_e-ss_e
+                first_map.append({"dest_start":fd_e-range_out, "src_start":fm["src_start"]+fm["range"]-range_out, "range":range_out})
+                f_end_overlap_offset = fm["range"]-range_out
+                s_end_overlap_offset = sm["range"]
+
+            if f_end_overlap_offset-f_start_overlap_offset != s_end_overlap_offset-s_start_overlap_offset:
+                print("mismatch?")
+
+            # put the overlap into the result
+            range_out = f_end_overlap_offset-f_start_overlap_offset
+            map_out.append({"dest_start":sm["dest_start"]+s_end_overlap_offset-range_out, "src_start":fm["src_start"]+f_start_overlap_offset, "range":range_out})
+    # anything left in first map goes straight through second map
+    for fm in first_map:
+        if "removed" in fm:
+            continue
+        map_out.append({"dest_start":fm["dest_start"], "src_start":fm["src_start"], "range":fm["range"]})
+    # anything left in second map goes straight through first map
+    for sm in second_map:
+        if "removed" in sm:
+            continue
+        map_out.append({"dest_start":sm["dest_start"], "src_start":sm["src_start"], "range":sm["range"]})
+
+def merge_maps(maps):
+    merged_map_out = copy.deepcopy(maps[0])
+    for idx,map in enumerate(maps):
+        if idx == 0:
+            continue
+        maps[0] = copy.deepcopy(merged_map_out)
+        merged_map_out = []
+        merge_two_maps(maps[0], maps[idx], merged_map_out)
+    return merged_map_out
+            
+
+def map_seeds(map, seeds):
+    # find the lowest map output
+    map.sort(key=lambda entry: entry["dest_start"])
+    seeds.sort(key=lambda entry: entry["start"])
+    for entry in map:
+        # do we have a seed in this range?
+        for seed in seeds:
+            if seed["start"] + seed["range"] > entry["src_start"] and entry["src_start"] + entry["range"] > seed["start"]:
+                lowest_src_seed = max(seed["start"], entry["src_start"])
+                lowest_mapped_seed = map_seed_in_map(lowest_src_seed, map)
+                print(lowest_mapped_seed)
+                return
+
+def tests():
+    # overlap in the middle
+    maps=[]
+    maps.append([{"dest_start":100,"src_start":0, "range":20}])
+    maps.append([{"dest_start":201,"src_start":101, "range":10}])
+
+    merged_map=merge_maps(maps)
+
+    maps=[]
+    maps.append([{"dest_start":100,"src_start":0, "range":20}])
+    maps.append([{"dest_start":190,"src_start":90, "range":50}])
+
+    merged_map=merge_maps(maps)
 
 def run():
     maps = []
     seeds = []
     parse_maps(maps, seeds)
-    map_seeds(maps, seeds)
+    merged_map = merge_maps(maps)
+    map_seeds(merged_map, seeds)
 
 cProfile.run('run()')
 
