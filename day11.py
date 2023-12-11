@@ -140,18 +140,6 @@ input = """.........................#.........................#.................
 .......................................................#.......................................................#............................"""
 
 
-input = """...#......
-.......#..
-#.........
-..........
-......#...
-.#........
-.........#
-..........
-.......#..
-#...#....."""
-
-
 galaxies = []
 for row_idx,line in enumerate(input.split('\n')):
     for col_idx,letter in enumerate(line):
@@ -172,18 +160,20 @@ def get_expanded_distance(idxa, idxb):
     maxcol = max(galaxies[idxa]["col_idx"], galaxies[idxb]["col_idx"])
     maxrow = max(galaxies[idxa]["row_idx"], galaxies[idxb]["row_idx"])
 
+    scale = 1000000-1
+
     distance = 0
-    for row in range(minrow, maxrow):
+    for row in range(minrow+1, maxrow+1):
         distance+=1
         # and is this row expanded
         if row not in galaxy_rows:
-            distance+=1
+            distance+=scale
 
-    for col in range(mincol, maxcol):
+    for col in range(mincol+1, maxcol+1):
         distance+=1
         # and is this row expanded
         if col not in galaxy_cols:
-            distance+=1
+            distance+=scale
 
     return distance
 
