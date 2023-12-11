@@ -139,9 +139,8 @@ LF-F.JFF-F-LJJ-LF.J..FF7LFJ|.LL77-7L77J-|JJ7.J-LFF-7.7JLJ.F|FJ|L7LJ.F--JJL77L|-J
 |.L77.L-7|||F|J.7-7F7||F-.LFJ7|L|J.LL7L7|-FLJJF-JLL.-777|FFLJL|FJ-LF-LL|.FLJ-|LFF7|.-J.7J-LJ|.7FL-JLJ-L|7JLFJ.|7L77||JFL-.|7.LJF7---7-FJ|FJ7
 F|.LJ.|LFFJJ77-JJ-LL-JLF.FJ.LLF-JF77JL7-L-7JJ-JLLFJ.|.L--JJJ-LLJ.L-JL--L-JJJ-J--L-F.|L--7J.7J-LL...|J-L---L|J|JJ.LF-|.F-L.-J.L.L|.L.L-|.F|.J"""
 
-from enum import Enum
 
-lines = input.split('\n')
+from enum import Enum
 
 def find_the_start(lines):
     for row_idx, line in enumerate(lines):
@@ -152,13 +151,17 @@ def find_the_start(lines):
     print("failed to find start!")
     exit(-1)
 
+def overwrite_character(row_idx, column_idx, lines, character) :
+    lines[row_idx] = lines[row_idx][:column_idx] + character + lines[row_idx][column_idx + 1:]
+
 class Direction(Enum):
     STOP = 4
-    LEFT = 3
-    RIGHT = 2
-    UP = 1
-    DOWN = 0
+    WEST = 3
+    EAST = 2
+    NORTH = 1
+    SOUTH = 0
 
+g_pipe_locations=[]
 
 # | is a vertical pipe connecting north and south.
 # - is a horizontal pipe connecting east and west. 
@@ -171,67 +174,148 @@ class Direction(Enum):
 def follow_pipe(letter, entry_direction):
     if letter == 'S':
         return Direction.STOP # we are back to the start
-    if entry_direction == Direction.LEFT:
+    if entry_direction == Direction.WEST:
         if letter == '-':
-            return Direction.LEFT 
+            return Direction.WEST
         elif letter == 'L':
-            return Direction.UP 
+            return Direction.NORTH 
         elif letter == 'F':
-            return Direction.DOWN 
-    elif entry_direction == Direction.RIGHT:
+            return Direction.SOUTH  
+    elif entry_direction == Direction.EAST:
         if letter == '-':
-            return Direction.RIGHT 
+            return Direction.EAST  
         elif letter == 'J':
-            return Direction.UP 
+            return Direction.NORTH  
         elif letter == '7':
-            return Direction.DOWN 
-    elif entry_direction == Direction.UP:
+            return Direction.SOUTH  
+    elif entry_direction == Direction.NORTH:
         if letter == '|':
-            return Direction.UP 
+            return Direction.NORTH  
         elif letter == '7':
-            return Direction.LEFT 
+            return Direction.WEST  
         elif letter == 'F':
-            return Direction.RIGHT 
-    elif entry_direction == Direction.DOWN:
+            return Direction.EAST  
+    elif entry_direction == Direction.SOUTH:
         if letter == '|':
-            return Direction.DOWN 
+            return Direction.SOUTH  
         elif letter == 'L':
-            return Direction.RIGHT 
+            return Direction.EAST  
         elif letter == 'J':
-            return Direction.LEFT 
+            return Direction.WEST 
 
+# follow the pipe until we reach an edge, then we know where inside is, then start flood filling
 def follow_the_pipe(row_idx, column_idx, lines, entry_direction):
-    steps = 0
     next_direction = entry_direction
     while next_direction != Direction.STOP:
-        next_direction = follow_pipe(lines[row_idx][column_idx], next_direction)
-        if next_direction == Direction.LEFT:
-            column_idx-=1
-        elif next_direction == Direction.RIGHT:
-            column_idx+=1
-        elif next_direction == Direction.UP:
-            row_idx-=1
-        elif next_direction == Direction.DOWN:
-            row_idx+=1
-        steps+=1
-    print(steps/2)
- 
-row_idx, column_idx = find_the_start(lines)
+        # add this node to our list of pipe nodes
+        global g_pipe_locations
+        if not [row_idx,column_idx] in g_pipe_locations:
+            g_pipe_locations.append([row_idx,column_idx]) # this could be a more optimal data structure!
 
-# find an option for leaving this start square, and then follow it
-if column_idx > 0:
-    left = lines[row_idx][column_idx-1]
+        next_direction = follow_pipe(lines[row_idx][column_idx], next_direction)
+        if next_direction == Direction.WEST:
+            column_idx-=1
+        elif next_direction == Direction.EAST:
+            column_idx+=1
+        elif next_direction == Direction.NORTH:
+            row_idx-=1
+        elif next_direction == Direction.SOUTH:
+            row_idx+=1
+
+
+lines = input.split('\n')
+start_row_idx, start_column_idx = find_the_start(lines)
+
+# go round the pipes once, to record the locations of pipe
+
+possible_directions=[]
+
+if start_column_idx > 0:
+    left = lines[start_row_idx][start_column_idx-1]
     if left == '-' or left == 'L' or left =='F':
-        follow_the_pipe(row_idx, column_idx-1, lines, Direction.LEFT)
-if column_idx+1 < len(lines):
-    right = lines[row_idx][column_idx+1]
+        possible_directions.append(Direction.WEST)
+        row_idx = start_row_idx
+        column_idx = start_column_idx-1
+if start_column_idx+1 < len(lines[start_row_idx]):
+    right = lines[start_row_idx][start_column_idx+1]
     if right == '-' or right == 'J' or right =='7':
-        follow_the_pipe(row_idx, column_idx+1, lines, Direction.RIGHT)
-if row_idx > 0:
-    above = lines[row_idx-1][column_idx]
+        possible_directions.append(Direction.EAST)
+        row_idx = start_row_idx
+        column_idx = start_column_idx+1
+if start_row_idx > 0:
+    above = lines[start_row_idx-1][start_column_idx]
     if above == '|' or above == '7' or above =='F':
-        follow_the_pipe(row_idx-1, column_idx, lines, Direction.UP)
-if row_idx+1 < len(lines):
-    below = lines[row_idx+1][column_idx]
+        possible_directions.append(Direction.NORTH)  
+        row_idx = start_row_idx-1
+        column_idx = start_column_idx
+if start_row_idx+1 < len(lines):
+    below = lines[start_row_idx+1][start_column_idx]
     if below == '|' or below == 'L' or below =='J':
-        follow_the_pipe(row_idx+1, column_idx, lines, Direction.DOWN)
+        possible_directions.append(Direction.SOUTH)
+        row_idx = start_row_idx+1
+        column_idx = start_column_idx
+        
+if len(possible_directions) != 2:
+    print("parse error")
+    exit(-1)
+
+
+# first follow the pipe to get all the pipe seggys
+follow_the_pipe(row_idx, column_idx, lines, possible_directions[1])
+
+# | is a vertical pipe connecting north and south.
+# - is a horizontal pipe connecting east and west. 
+# L is a 90-degree bend connecting north and east. 
+# J is a 90-degree bend connecting north and west.
+# 7 is a 90-degree bend connecting south and west.
+# F is a 90-degree bend connecting south and east.
+# swap out the S for the appropriate symbol
+if possible_directions[0] == Direction.WEST:
+    if possible_directions[1] == Direction.EAST:
+        overwrite_character(start_row_idx, start_column_idx, lines, '-')
+    elif possible_directions[1] == Direction.NORTH:
+        overwrite_character(start_row_idx, start_column_idx, lines, 'J')
+    elif possible_directions[1] == Direction.SOUTH:
+        overwrite_character(start_row_idx, start_column_idx, lines, '7')
+elif possible_directions[0] == Direction.EAST:
+    if possible_directions[1] == Direction.NORTH:
+        overwrite_character(start_row_idx, start_column_idx, lines, 'L')
+    elif possible_directions[1] == Direction.SOUTH:
+        overwrite_character(start_row_idx, start_column_idx, lines, 'F')
+elif possible_directions[0] == Direction.NORTH:
+    if possible_directions[1] == Direction.SOUTH:
+        overwrite_character(start_row_idx, start_column_idx, lines, '|')
+
+# anything that's not my pipe can be a .
+for i,line in enumerate(lines):
+    pipes_crossed = 0
+    last_pipe=Direction.STOP
+    for j,letter in enumerate(line):
+        if [i,j] in g_pipe_locations:
+            pipe = lines[i][j]
+            if pipe in ['|']:
+                pipes_crossed+=1
+            if pipe == 'L':
+                last_pipe = Direction.NORTH
+            if pipe == 'J':
+                if last_pipe == Direction.SOUTH:
+                    pipes_crossed+=1
+            elif pipe == '7':
+                if last_pipe == Direction.NORTH:
+                    pipes_crossed+=1
+            elif pipe == 'F':
+                last_pipe = Direction.SOUTH
+        else:
+            # if we crossed an odd number of pipes we are inside...
+            if pipes_crossed % 2 == 0:
+                overwrite_character(i, j, lines, '.')
+            else:
+                overwrite_character(i, j, lines, 'I')
+
+print(lines)
+insides = 0
+for line in lines:
+    for letter in line:
+        if letter == 'I':
+            insides += 1
+print(insides)
