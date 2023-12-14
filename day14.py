@@ -99,47 +99,103 @@ O...O.O..O.#.......O..O.O....O..O..#..#.........#O.OO..O..O.#O..O.....O.....#O..
 ..O#...#......O..OO...O.#.##O.OO.#...OO..#OO#....#.#.O#..#O.#.OO..O...O#.OO.O...O.#.#.....O..#O....#
 ....O..#.....#..#.#O.O.OO.#...#.O...#.....##.#..#...OO........O#..O.OO..O.O..O.#...#....O..##..O...."""
 
-input = """O....#....
-O.OO#....#
-.....##...
-OO.#O....O
-.O.....O#.
-O.#..O.#.#
-..O..#O..O
-.......O..
-#....###..
-#OO..#...."""
 
 def parse_inputs(input):
-    columns = []
+    rows = []
     for line in input.split('\n'):
+        row = []
         for col_idx,character in enumerate(line):
-            if not col_idx in columns:
-                columns.append([])
-            columns[col_idx].append(character)
-    return columns
+            row.append(character)
+        rows.append(row)
+    return rows
 
-def tilt_north(columns):
+def get_load(rows):
     load = 0
+    for row_idx,row in enumerate(rows):
+        for col_idx in range(0, len(row)): 
+            if row[col_idx] == 'O':
+                load += len(row) - row_idx 
+    return load
+
+def tilt_north(rows):
     # shuffle rocks to the north
-    for col in columns:
-        offset = 0
-        shuffle_to = 0
-        for offset in range(0, len(col)):
-            if col[offset] == 'O':
+    shuffle_to = [] # array with an entry per column
+    for i in range(0, len(rows[0])):
+        shuffle_to.append(0)
+
+    for row_idx,row in enumerate(rows):
+        for col_idx in range(0, len(row)):
+            if rows[row_idx][col_idx] == 'O':
                 # shuffle upwards
-                col[shuffle_to] = 'O'
-                if shuffle_to != offset:
-                    col[offset] = '.'
-                shuffle_to+=1
-                load += len(col)-shuffle_to+1
-            elif col[offset] == '.':
+                rows[shuffle_to[col_idx]][col_idx] = 'O'
+                if shuffle_to[col_idx] != row_idx:
+                    rows[row_idx][col_idx] = '.'
+                shuffle_to[col_idx]+=1
+            elif rows[row_idx][col_idx] == '.':
                 # can ignore spare spaces
                 continue
-            elif col[offset] == '#':
+            elif rows[row_idx][col_idx] == '#':
                 # this will block rocks
-                shuffle_to = offset+1
-    print(load)
+                shuffle_to[col_idx] = row_idx+1
+    
 
-columns = parse_inputs(input)
-tilt_north(columns)
+def tilt_south(rows):
+    # shuffle rocks to the south
+    rows.reverse()
+    tilt_north(rows)
+    rows.reverse()
+
+
+def tilt_east(rows):
+    for row in rows:
+        row.reverse()
+    tilt_west(rows)
+    for row in rows:
+        row.reverse()
+
+
+def tilt_west(rows):
+    for row_idx,row in enumerate(rows):
+        shuffle_to = 0
+        for col_idx in range(0, len(row)):
+            if rows[row_idx][col_idx] == 'O':
+                # shuffle leftwards
+                rows[row_idx][shuffle_to] = 'O'
+                if shuffle_to != col_idx:
+                    rows[row_idx][col_idx] = '.'
+                shuffle_to+=1
+            elif rows[row_idx][col_idx] == '.':
+                # can ignore spare spaces
+                continue
+            elif rows[row_idx][col_idx] == '#':
+                # this will block rocks
+                shuffle_to = col_idx+1
+    
+def spin_cycle(rows):
+    tilt_north(rows)
+    tilt_west(rows)
+    tilt_south(rows)
+    tilt_east(rows)
+
+rows = parse_inputs(input)
+
+# is there a period where we get back to where we start?  
+# if so we can condense that loop and pretend it never happened!
+states = {}
+MAX_CYCLES = 1000000000
+cycle = 0
+while cycle  < MAX_CYCLES:
+    state_hash = hash(str(rows))
+    if state_hash in states:
+        print(f"found cycle {states[state_hash]} => {cycle}")
+        period = cycle - states[state_hash]
+        num_periods_left = int((MAX_CYCLES-cycle) / period)
+        cycle += period*num_periods_left
+
+    states[state_hash] = cycle
+    spin_cycle(rows)
+    cycle += 1
+
+for row in rows:
+    print(row)
+print(get_load(rows))
