@@ -999,31 +999,45 @@ input="""??????#??#?? 1,1,5,1
 ???????#????.?#. 10,2
 ??.?????#? 1,5"""
 
+input = """???.### 1,1,3
+.??..??...?##. 1,1,3
+?#?#?#?#?#?#?#? 1,3,1,6
+????.#...#... 4,1,1
+????.######..#####. 1,6,5
+?###???????? 3,2,1"""
+
+import cProfile
 import copy
 
 def overwrite_character(line, idx, character) :
     return line[:idx] + character + line[idx + 1:]
 
+def fits_pattern(spring_string, sequences):
+    dot_count=0
+    hash_count=0
+    q_count=0
+    seq_idx=0
 
-def fits_pattern(spring_string, _sequences):
-    sequences = copy.deepcopy(_sequences)
     start_group = -1 
-    seqlen = sequences.pop(0)
+    seqlen = sequences[seq_idx]
     for offset,char in enumerate(spring_string):
         if char == ".":
+            dot_count+=1
             if start_group != -1:
                 # have come to the end of a run of springs
                 if offset-start_group != seqlen:
                     #print(f"mismatch - got {offset-start_group} sequence when wanted {seqlen}")
                     return False
                 #print(f"match - {seqlen}")
-                if len(sequences):
-                    seqlen = sequences.pop(0)
+                seq_idx+=1
+                if seq_idx<len(sequences):
+                    seqlen = sequences[seq_idx]
                 else :
                     # the rest better be .
                     seqlen=0
                 start_group = -1
         elif char == "#":
+            hash_count+=1
             if start_group == -1:
                 start_group = offset
             else:
@@ -1031,6 +1045,22 @@ def fits_pattern(spring_string, _sequences):
                 if length_so_far > seqlen:
                     #print(f"mismatch - got at least {length_so_far} sequence when wanted {seqlen}")
                     return False
+        elif char == "?":
+            q_count+=1
+            # too many #? too many.? count the rest...
+            for char_idx in range(offset+1,len(spring_string)):
+                if spring_string[char_idx] == '.':
+                    dot_count+=1
+                elif spring_string[char_idx] == '#':
+                    hash_count+=1
+                elif spring_string[char_idx] == '?':
+                    q_count+=1
+            if sum(sequences) > hash_count+q_count:
+                return False
+            if len(spring_string) - sum(sequences) > dot_count+q_count:
+                return False
+            return True # reached the first ? - carry on?
+        
     # fell out, is the last seqlen good?
     if start_group == -1:
         # not in a last group
@@ -1043,34 +1073,35 @@ def fits_pattern(spring_string, _sequences):
     length_so_far = offset-start_group+1
     if length_so_far == seqlen:
         #print(f"Found last sequence of {length_so_far}")
-        if len(sequences):
+        if seq_idx != len(sequences)-1:
             # was expecting more groups
             return False
         return True
     else:
         return False
 
-                
+def generate_poss(spring_string, sequences, qs, q_idx, possibilities):
+    q = qs[q_idx]
 
-
-def generate_poss(spring_string, qs, possibilities):
-    q = qs.pop()
-
-    if len(qs) == 0: # this was thhe last one
+    if q_idx+1==len(qs): # this was the last one
         # try a #
         hash_string = overwrite_character(spring_string, q, '#')
         # try a .
         dot_string = overwrite_character(spring_string, q, '.')
-        possibilities.append(hash_string)
-        possibilities.append(dot_string)
+        if fits_pattern(hash_string, sequences):
+            possibilities.append(hash_string)
+        if fits_pattern(dot_string, sequences):
+            possibilities.append(dot_string)
         return
 
     # try a #
     hash_string = overwrite_character(spring_string, q, '#')
-    generate_poss(hash_string, copy.deepcopy(qs), possibilities)
+    if fits_pattern(hash_string, sequences):
+        generate_poss(hash_string, sequences, qs, q_idx+1, possibilities)
     # try a .
     dot_string = overwrite_character(spring_string, q, '.')
-    generate_poss(dot_string, copy.deepcopy(qs), possibilities)
+    if fits_pattern(dot_string, sequences):
+        generate_poss(dot_string, sequences, qs, q_idx+1, possibilities)
 
 
 def get_possibilities(spring_string, sequences):
@@ -1081,23 +1112,26 @@ def get_possibilities(spring_string, sequences):
             qs.append(i)
 
     possibilities = []
-    generate_poss(spring_string, qs, possibilities)
+    generate_poss(spring_string, sequences, qs, 0, possibilities)
     return possibilities
 
+def run():
+    total = 0
+    for line in input.split('\n'):
+        orig_spring_string,nums=line.split(' ')
+        orig_sequences = [int(x) for x in nums.split(',')]
+        spring_string = orig_spring_string
+        sequences = copy.deepcopy(orig_sequences)
+        for i in range(0,4):
+            spring_string += '?' + orig_spring_string
+            for s in orig_sequences:
+                sequences.append(s)
+        possibilities = get_possibilities(spring_string, sequences)
+        print(line)
+        print(len(possibilities))
+        total+=len(possibilities)
 
-    
-
-total = 0
-for line in input.split('\n'):
-    spring_string,nums=line.split(' ')
-    sequences = [int(x) for x in nums.split(',')]
-    possibilities = get_possibilities(spring_string, sequences)
-    print(line)
-    for possibility in possibilities:
-        if fits_pattern(possibility, sequences):
-            print(possibility)
-            total+=1
     print(total)
 
-print(total)
+cProfile.run('run()')
 
