@@ -617,154 +617,185 @@ U 6 (#5a4ea3)
 L 9 (#507222)
 U 3 (#2e1ca3)"""
 
-
 import cProfile 
+import functools
 
 type Location = tuple[int,int] # this is x(west/east), y(north/south)
 
-# east
-def move_right(length: int, current: list[int], cubes_dug: dict[Location, bool]):
-    for i in range(0,length):
-        current[0]+=1
-        cubes_dug[tuple(current)]=True
-# west
-def move_left(length: int, current: list[int], cubes_dug: dict[Location, bool]):
-    for i in range(0,length):
-        current[0]-=1
-        cubes_dug[tuple(current)]=True   
-# north
-def move_up(length: int, current: list[int], cubes_dug: dict[Location, bool]):
-    for i in range(0,length):
-        current[1]-=1
-        cubes_dug[tuple(current)]=True  
-# south
-def move_down(length: int, current: list[int], cubes_dug: dict[Location, bool]):
-    for i in range(0,length):
-        current[1]+=1
-        cubes_dug[tuple(current)]=True          
+class Line:
+    start: Location
+    end: Location
+    min_x: int
+    max_x: int
+    min_y: int
+    max_y: int
+    horizontal: bool
 
-def get_extents(cubes_dug):
-    max_x=-99999999
-    max_y=-99999999
-    min_x=99999999
-    min_y=99999999
-    for cube in cubes_dug:
-        max_x = max(max_x, cube[0])
-        max_y = max(max_y, cube[1])
-        min_x = min(min_x, cube[0])
-        min_y = min(min_y, cube[1])
+    def __init__(self, _start: Location, _end: Location):
+        self.start = _start
+        self.end = _end
+        self.min_x = min(self.start[0], self.end[0])
+        self.max_x = max(self.start[0], self.end[0])
+        self.min_y = min(self.start[1], self.end[1])
+        self.max_y = max(self.start[1], self.end[1])
+        self.horizontal = self.start[1]==self.end[1]
+
+# east
+def move_right(length: int, current: Location, lines_dug: list[Line]):
+    new_current = (current[0]+length,current[1])
+    lines_dug.append(Line(current,new_current))
+    return new_current
+ 
+# west
+def move_left(length: int, current: Location, lines_dug: list[Line]):
+    new_current = (current[0]-length,current[1])
+    lines_dug.append(Line(current,new_current))
+    return new_current
+
+# north
+def move_up(length: int, current: Location, lines_dug: list[Line]):
+    new_current = (current[0],current[1]-length)
+    lines_dug.append(Line(current,new_current))
+    return new_current
+
+# south
+def move_down(length: int, current: Location, lines_dug: list[Line]):
+    new_current = (current[0],current[1]+length)
+    lines_dug.append(Line(current,new_current))
+    return new_current
+
+
+def get_extents(lines_dug: list[Line]):
+    max_x=-99999999999
+    max_y=-99999999999
+    min_x=99999999999
+    min_y=99999999999
+    for line in lines_dug:
+        max_x = max(max_x, line.max_x)
+        max_y = max(max_y, line.max_y)
+        min_x = min(min_x, line.min_x)
+        min_y = min(min_y, line.min_y)
     max_x+=1
     max_y+=1
     return min_x,min_y,max_x,max_y
 
-def debug_print(cubes_dug):
-    # get extents
-    min_x,min_y,max_x,max_y=get_extents(cubes_dug)
+# NB this relies on is_location_on_any_line returning the horixontal line in preference for corners
+def is_change(line: Line, prev_line: Line, next_line: Line):
 
-    for y in range(min_y,max_y):
-        for x in range(min_x,max_x):
-            if (x,y) in cubes_dug:
-                print("#",end="")
-            else:
-                print(".", end="") 
-        print("")
-    print("")
-
-def is_change(loc, cubes_dug):
-    min_x,min_y,max_x,max_y=get_extents(cubes_dug) # todo optimise!
-
-    x=loc[0]
-    y=loc[1]
-
-    # have we already dealt with this run of #'s - we just calculate the change for the first in the row!
-    if x!=min_x and (x-1,y) in cubes_dug:
-        return False
-
-    # are we at the top or bottom?
-    if y==min_y or y==max_y:
-        return False
-    
-    # are we on a side edge?
-    if x==min_x or x==max_x:
+    # a vertical line is always a change
+    if not line.horizontal:
         return True
-    
-    # are we just one # wide?
-    if not (x-1,y) in cubes_dug and not (x+1,y) in cubes_dug:
-        return True
-   
-    # go left and see if the pipe came from up or down
-    
-    was_from_up=(min_x,y-1) in cubes_dug
-    was_from_down = (min_x,y+1) in cubes_dug
-    for x in range(loc[0], min_x, -1):
-        if not (x,y) in cubes_dug:
-            # found the bend
-            was_from_up = (x+1,y-1) in cubes_dug
-            was_from_down = (x+1,y+1) in cubes_dug
-            break
-    goes_to_up = (max_x-1,y-1) in cubes_dug
-    goes_to_down = (max_x-1,y+1) in cubes_dug
-    for x in range(loc[0], max_x):
-        if not (x,y) in cubes_dug:
-            # found the bend
-            goes_to_up = (x-1,y-1) in cubes_dug
-            goes_to_down = (x-1,y+1) in cubes_dug
-            break
-    
-    if was_from_up and goes_to_up:
-        return False
-    if was_from_down and goes_to_down:
-        return False
 
+    was_from_up = prev_line.start[1]<prev_line.end[1]
+    goes_to_up = next_line.start[1]>next_line.end[1]
+
+    if was_from_up == goes_to_up:
+        return False
+  
     return True
 
-def run():
-    cubes_dug: dict[Location] = {}
-    current: list[int,int] = [0,0]
+def compare_lines(a:Line,b:Line):
+    if a.min_x > b.min_x:
+        return 1
+    if b.min_x > a.min_x:
+        return -1
+    
+    # they have the same min_x, so do the vertical one first?
+    if not a.horizontal and b.horizontal:
+        return -1
+    
+    if not b.horizontal and a.horizontal:
+        return 1
+    
+    print("GFDSHFGSHFDGJHDJGHJGHDFHJFJFJKH")
+    return 0
+    
+def get_intersecting_lines_for_this_row(y: int, lines:list[Line]) -> Line:
+    intersecting_lines = []
+    for line in lines:
+        # ignore anything that is too high or too low
+        if y < line.min_y:
+            continue
+        if y > line.max_y:
+            continue
+
+        intersecting_lines.append(line)
+
+    # now we want the lines sorted in the order that we encounter them from the LHS
+    intersecting_lines.sort( key=functools.cmp_to_key(compare_lines))
+    return intersecting_lines
+
+def parse_lines_dug(input):
+    lines_dug: list[Location] = []
+    current: tuple[int,int] = (0,0)
     for line in input.split('\n'):
-        direction,length,colour=line.split()
-        length = int(length)
+        old_direction,old_length,colour=line.split()
+        if True:
+            direction_number = colour[7]
+            colour=colour.replace('(#','0x')
+            colour=colour.replace(')','')
+            colour = colour[:len(colour)-1]
+            length=int(colour,16)
 
-        # 
+            # doh, extract colour
+            if direction_number=='0':
+                current=move_right(length, current, lines_dug)
+            elif direction_number=='2':
+                current=move_left(length, current, lines_dug)
+            elif direction_number=='3':
+                current=move_up(length, current, lines_dug)
+            elif direction_number=='1':
+                current=move_down(length, current, lines_dug)
+        else:
+            old_length=int(old_length)
+            # part 1 behaviour-useful for testing
+            if old_direction=='R':
+                current=move_right(old_length, current, lines_dug)
+            elif old_direction=='L':
+                current=move_left(old_length, current, lines_dug)
+            elif old_direction=='U':
+                current=move_up(old_length, current, lines_dug)
+            elif old_direction=='D':
+                current=move_down(old_length, current, lines_dug)
+    return lines_dug
 
-        if direction=='R':
-            move_right(length, current, cubes_dug)
-        elif direction=='L':
-            move_left(length, current, cubes_dug)
-        elif direction=='U':
-            move_up(length, current, cubes_dug)
-        elif direction=='D':
-            move_down(length, current, cubes_dug)
-
-    #debug_print(cubes_dug)
+def run():
+    lines_dug = parse_lines_dug(input)
 
     # get extents
-    min_x,min_y,max_x,max_y=get_extents(cubes_dug)
+    min_x,min_y,max_x,max_y=get_extents(lines_dug)
 
     # scan across trench, tracking whether inside, counting cubes
     filled = 0
-    for y in range(min_y, max_y):
+    for y in range(min_y,max_y):
         inside=False
-        for x in range(min_x, max_x):
-            if (x,y) in cubes_dug:
+        x=min_x
+        intersecting_lines = get_intersecting_lines_for_this_row(y, lines_dug)
+        for line_idx,line in enumerate(intersecting_lines):
+            if line.horizontal:
                 # is this a change from inside to outside, from outside to inside, or not a change at all?
-                if is_change([x,y], cubes_dug):
+                if is_change(line, intersecting_lines[line_idx-1], intersecting_lines[line_idx+1]): 
                     inside = not inside
+                # skip to the end, filling as we go
+                new_x=line.max_x
+                filled+=new_x-x
+            else:
+                # fill (or don't) up to this line
+                new_x=line.max_x
+                if inside:
+                    filled+=new_x-x
+                    
+                # skip past this line
+                new_x=line.max_x+1
                 filled+=1
-                #print("#",end="")
-                continue
-            if inside:
-                filled+=1
-                #print("*",end="")
-                continue
-            #print(".",end="")
-        #print("")
-    #print("")
-            
+               
+                # vertical always counts as a change
+                inside = not inside
+            x=new_x    
 
     print(filled)
 
-run()
-#cProfile.run("run()")
+#run()
+cProfile.run("run()")
     
 
