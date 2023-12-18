@@ -999,12 +999,6 @@ input="""??????#??#?? 1,1,5,1
 ???????#????.?#. 10,2
 ??.?????#? 1,5"""
 
-input="""???.### 1,1,3
-.??..??...?##. 1,1,3
-?#?#?#?#?#?#?#? 1,3,1,6
-????.#...#... 4,1,1
-????.######..#####. 1,6,5
-?###???????? 3,2,1"""
 
 import cProfile
 import copy
@@ -1073,8 +1067,17 @@ def fits_pattern(spring_string, sequences, matches_up_to_string_idx, matches_up_
     else:
         return False,last_completed_group,seq_idx
 
-def generate_poss(spring_string_chars, sequences, qs, q_idx, possibilities, matches_up_to_string_idx, matches_up_to_sequences_idx):
+cache = {}
+def generate_poss(spring_string_chars, sequences, qs, q_idx, matches_up_to_string_idx, matches_up_to_sequences_idx):
     q = qs[q_idx]
+    possibilities = 0
+
+    # already done this one?
+    global cache
+    key = hash(str(spring_string_chars[matches_up_to_string_idx:])+str(sequences[matches_up_to_sequences_idx:]))
+    if key in cache:
+        expecting = cache[key]
+        return expecting
 
     if q_idx+1==len(qs): # this was the last one
         # try a #
@@ -1090,22 +1093,24 @@ def generate_poss(spring_string_chars, sequences, qs, q_idx, possibilities, matc
 
         #reset before we bubble back up
         overwrite_character(spring_string_chars, q, '?')
+        cache[key] = possibilities
         return possibilities
 
     # try a #
     overwrite_character(spring_string_chars, q, '#')
     matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
     if matches:
-        possibilities=generate_poss(spring_string_chars, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
+        possibilities+=generate_poss(spring_string_chars, sequences, qs, q_idx+1, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
     
     # try a .
     overwrite_character(spring_string_chars, q, '.')
     matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
     if matches:
-        possibilities=generate_poss(spring_string_chars, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
+        possibilities+=generate_poss(spring_string_chars, sequences, qs, q_idx+1, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
 
     #reset before we bubble back up
     overwrite_character(spring_string_chars, q, '?')
+    cache[key] = possibilities
     return possibilities
 
 def get_possibilities(spring_string_chars, sequences):
@@ -1115,8 +1120,7 @@ def get_possibilities(spring_string_chars, sequences):
         if spring_string_chars[i] == '?':
             qs.append(i)
 
-    possibilities=0
-    possibilities=generate_poss(spring_string_chars, sequences, qs, 0, possibilities, 0, 0)
+    possibilities=generate_poss(spring_string_chars, sequences, qs, 0, 0, 0)
     return possibilities
 
 def run():
