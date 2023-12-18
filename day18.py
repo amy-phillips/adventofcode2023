@@ -617,6 +617,7 @@ U 6 (#5a4ea3)
 L 9 (#507222)
 U 3 (#2e1ca3)"""
 
+
 import cProfile 
 import functools
 
@@ -695,10 +696,12 @@ def is_change(line: Line, prev_line: Line, next_line: Line):
     return True
 
 def compare_lines(a:Line,b:Line):
+
+
     if a.min_x > b.min_x:
-        return 1
+        return 1 # a goes later
     if b.min_x > a.min_x:
-        return -1
+        return -1 # b goes later
     
     # they have the same min_x, so do the vertical one first?
     if not a.horizontal and b.horizontal:
@@ -706,6 +709,11 @@ def compare_lines(a:Line,b:Line):
     
     if not b.horizontal and a.horizontal:
         return 1
+    
+    if a.min_y > b.min_y:
+        return 1 # a goes later  
+    if b.min_y > a.min_y:
+        return -1 # b goes later
     
     print("GFDSHFGSHFDGJHDJGHJGHDFHJFJFJKH")
     return 0
@@ -721,8 +729,7 @@ def get_intersecting_lines_for_this_row(y: int, lines:list[Line]) -> Line:
 
         intersecting_lines.append(line)
 
-    # now we want the lines sorted in the order that we encounter them from the LHS
-    intersecting_lines.sort( key=functools.cmp_to_key(compare_lines))
+    # intersecting_lines are already sorted because we sorted lines_dug
     return intersecting_lines
 
 def parse_lines_dug(input):
@@ -730,33 +737,24 @@ def parse_lines_dug(input):
     current: tuple[int,int] = (0,0)
     for line in input.split('\n'):
         old_direction,old_length,colour=line.split()
-        if True:
-            direction_number = colour[7]
-            colour=colour.replace('(#','0x')
-            colour=colour.replace(')','')
-            colour = colour[:len(colour)-1]
-            length=int(colour,16)
+        direction_number = colour[7]
+        colour=colour.replace('(#','0x')
+        colour=colour.replace(')','')
+        colour = colour[:len(colour)-1]
+        length=int(colour,16)
 
-            # doh, extract colour
-            if direction_number=='0':
-                current=move_right(length, current, lines_dug)
-            elif direction_number=='2':
-                current=move_left(length, current, lines_dug)
-            elif direction_number=='3':
-                current=move_up(length, current, lines_dug)
-            elif direction_number=='1':
-                current=move_down(length, current, lines_dug)
-        else:
-            old_length=int(old_length)
-            # part 1 behaviour-useful for testing
-            if old_direction=='R':
-                current=move_right(old_length, current, lines_dug)
-            elif old_direction=='L':
-                current=move_left(old_length, current, lines_dug)
-            elif old_direction=='U':
-                current=move_up(old_length, current, lines_dug)
-            elif old_direction=='D':
-                current=move_down(old_length, current, lines_dug)
+        # doh, extract colour
+        if direction_number=='0':
+            current=move_right(length, current, lines_dug)
+        elif direction_number=='2':
+            current=move_left(length, current, lines_dug)
+        elif direction_number=='3':
+            current=move_up(length, current, lines_dug)
+        elif direction_number=='1':
+            current=move_down(length, current, lines_dug)
+
+    # now we want the lines sorted in the order that we encounter them from the LHS
+    lines_dug.sort( key=functools.cmp_to_key(compare_lines))
     return lines_dug
 
 def run():
@@ -764,6 +762,8 @@ def run():
 
     # get extents
     min_x,min_y,max_x,max_y=get_extents(lines_dug)
+
+    # split lines into buckets so we don;t have as many to consider for each y-line
 
     # scan across trench, tracking whether inside, counting cubes
     filled = 0
