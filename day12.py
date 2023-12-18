@@ -999,16 +999,24 @@ input="""??????#??#?? 1,1,5,1
 ???????#????.?#. 10,2
 ??.?????#? 1,5"""
 
+input="""???.### 1,1,3
+.??..??...?##. 1,1,3
+?#?#?#?#?#?#?#? 1,3,1,6
+????.#...#... 4,1,1
+????.######..#####. 1,6,5
+?###???????? 3,2,1"""
+
 import cProfile
 import copy
 
-def overwrite_character(line, idx, character) :
-    return line[:idx] + character + line[idx + 1:]
+def overwrite_character(spring_string_chars, idx, character) :
+    spring_string_chars[idx]=character
 
 def fits_pattern(spring_string, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx):
     seq_idx=matches_up_to_sequences_idx
     start_group = -1 
     last_completed_group=matches_up_to_string_idx
+    
     if seq_idx<len(sequences):
         seqlen = sequences[seq_idx]
     else :
@@ -1023,7 +1031,7 @@ def fits_pattern(spring_string, sequences, matches_up_to_string_idx, matches_up_
                     #print(f"mismatch - got {offset-start_group} sequence when wanted {seqlen}")
                     return False,last_completed_group,seq_idx
                 #print(f"match - {seqlen}")
-                last_completed_group=offset
+                last_completed_group=offset+1
                 seq_idx+=1
                 if seq_idx<len(sequences):
                     seqlen = sequences[seq_idx]
@@ -1031,9 +1039,13 @@ def fits_pattern(spring_string, sequences, matches_up_to_string_idx, matches_up_
                     # the rest better be .
                     seqlen=0
                 start_group = -1
+            else:
+                last_completed_group+=1
         elif char == "#":
             if start_group == -1:
                 start_group = offset
+                if seqlen==0:
+                    return False,last_completed_group,seq_idx
             else:
                 length_so_far = offset-start_group+1
                 if length_so_far > seqlen:
@@ -1061,43 +1073,50 @@ def fits_pattern(spring_string, sequences, matches_up_to_string_idx, matches_up_
     else:
         return False,last_completed_group,seq_idx
 
-def generate_poss(spring_string, sequences, qs, q_idx, possibilities, matches_up_to_string_idx, matches_up_to_sequences_idx):
+def generate_poss(spring_string_chars, sequences, qs, q_idx, possibilities, matches_up_to_string_idx, matches_up_to_sequences_idx):
     q = qs[q_idx]
 
     if q_idx+1==len(qs): # this was the last one
         # try a #
-        hash_string = overwrite_character(spring_string, q, '#')
+        overwrite_character(spring_string_chars, q, '#')
+        matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
+        if matches:
+            possibilities+=1
         # try a .
-        dot_string = overwrite_character(spring_string, q, '.')
-        matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(hash_string, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
+        overwrite_character(spring_string_chars, q, '.')
+        matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
         if matches:
-            possibilities.append(hash_string)
-        matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(dot_string, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
-        if matches:
-            possibilities.append(dot_string)
-        return
+            possibilities+=1
+
+        #reset before we bubble back up
+        overwrite_character(spring_string_chars, q, '?')
+        return possibilities
 
     # try a #
-    hash_string = overwrite_character(spring_string, q, '#')
-    matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(hash_string, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
+    overwrite_character(spring_string_chars, q, '#')
+    matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
     if matches:
-        generate_poss(hash_string, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
+        possibilities=generate_poss(spring_string_chars, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
+    
     # try a .
-    dot_string = overwrite_character(spring_string, q, '.')
-    matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(dot_string, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
+    overwrite_character(spring_string_chars, q, '.')
+    matches,new_matches_up_to_string_idx, new_matches_up_to_sequences_idx=fits_pattern(spring_string_chars, sequences, matches_up_to_string_idx, matches_up_to_sequences_idx)
     if matches:
-        generate_poss(dot_string, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
+        possibilities=generate_poss(spring_string_chars, sequences, qs, q_idx+1, possibilities, new_matches_up_to_string_idx, new_matches_up_to_sequences_idx)
 
+    #reset before we bubble back up
+    overwrite_character(spring_string_chars, q, '?')
+    return possibilities
 
-def get_possibilities(spring_string, sequences):
+def get_possibilities(spring_string_chars, sequences):
     # gonna just replace the ? with # and with . and see which matches!
     qs = []
-    for i in range(0, len(spring_string)):
-        if spring_string[i] == '?':
+    for i in range(0, len(spring_string_chars)):
+        if spring_string_chars[i] == '?':
             qs.append(i)
 
-    possibilities = []
-    generate_poss(spring_string, sequences, qs, 0, possibilities, 0, 0)
+    possibilities=0
+    possibilities=generate_poss(spring_string_chars, sequences, qs, 0, possibilities, 0, 0)
     return possibilities
 
 def run():
@@ -1111,10 +1130,14 @@ def run():
             spring_string += '?' + orig_spring_string
             for s in orig_sequences:
                 sequences.append(s)
-        possibilities = get_possibilities(spring_string, sequences)
+        # array of chars faster for replacing characters
+        spring_string_chars=[]
+        for char in spring_string:
+            spring_string_chars.append(char)
+        possibilities = get_possibilities(spring_string_chars, sequences)
         print(line)
-        print(len(possibilities))
-        total+=len(possibilities)
+        print(possibilities)
+        total+=possibilities
 
     print(total)
 
