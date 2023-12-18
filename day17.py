@@ -143,6 +143,7 @@ input="""23334142422145325413354423223233255325422653452453322636436622426256452
 
 from enum import Enum
 import cProfile
+import heapq
 
 class Direction(Enum):
     LEFT = 3
@@ -156,7 +157,14 @@ type Location = tuple[int,int]
 class Node:
     location: Location
     direction: Direction
-    dir_count:int
+    dir_count: int
+
+    # For node n, fScore[n] := gScore[n] + h(n). fScore[n] represents our current best guess as to
+    # how cheap a path could be from start to finish if it goes through n.
+    f_score: int # this should not be included in == or hash fns
+    # For node n, cameFrom[n] is the node immediately preceding it on the cheapest path from the start
+    # to n currently known.
+    came_from = None # urgh this points at another node!
 
     def __init__(self, _location: Location, _direction: Direction, _dir_count: int):
         self.location = _location
@@ -174,9 +182,13 @@ class Node:
         if self.dir_count != other.dir_count:
             return False
         return True
+    
+    # want heapq to give us low fscore first
+    def __lt__(self, other):
+        return self.f_score < other.f_score
       
     def __hash__(self):
-        return hash(self.location)+hash(self.direction.value+self.dir_count)
+        return hash(self.location)+hash(self.direction.value+10*self.dir_count)
 
 def parse_input(_input: str) -> dict[Location,int]:
     location_costs = {}
@@ -198,10 +210,10 @@ def h(neighbour: Node, goal: Location):
     distance = goal[0]-neighbour.location[0] + goal[1]-neighbour.location[1]
     return distance
 
-def reconstruct_path(cameFrom: dict[Node,Node], current: Node) -> list[Node]:
+def reconstruct_path(current: Node) -> list[Node]:
     total_path = [current]
-    while current in cameFrom:
-        current = cameFrom[current]
+    while current.came_from is not None:
+        current = current.came_from
         total_path.insert(0,current)
     return total_path
 
@@ -213,7 +225,7 @@ def calculate_cost(path: list[Node], costs: dict[Location,int]) -> int:
     cost-=costs[(0,0)]
     return cost
 
-def debug_print(path: list[Node], costs: dict[Location,int], limits: Location, fScore: dict[Node,int], gScore: dict[Node,int], openSet: list[Node]):
+def debug_print(path: list[Node], costs: dict[Location,int], limits: Location, openSet: list[Node]):
     # debug print the picture:
     for y in range(0, limits[1]):
         for x in range(0, limits[0]):
@@ -225,16 +237,8 @@ def debug_print(path: list[Node], costs: dict[Location,int], limits: Location, f
             for pn in openSet:
                 if pn.location == (x,y):
                     openset = 'o'
-            f_score=[]
-            for pn in fScore:
-                if pn.location == (x,y):
-                    f_score.append(fScore[pn])
-            g_score=[]
-            for pn in gScore:
-                if pn.location == (x,y):
-                    g_score.append(fScore[pn])
 
-            print(f"{costs[(x,y)]}{on_path}{openset}[{len(f_score):02d}][{len(g_score):02d}]  ", end="")
+            print(f"{costs[(x,y)]}{on_path} ", end="")
         print("") # newline
     print("") # newline
 
@@ -246,19 +250,73 @@ def would_be_four_in_a_row(current: Node, neighbour: Node):
         return False
     return True
 
-def get_fscore(node: Node, fScore: dict[Node,int]) -> int:
-    return fScore[id(node)]
-def set_fscore(node: Node, fScore: dict[Node,int], score:int):
-    fScore[id(node)]=score
+def get_possible_neighbours(current:Node, limits: list[int]):
+    neighbours: list[Node] = []
 
-def get_promising_current(openSet: list[Node], fScore: dict[Node,int]):
-    current = openSet[0]
-    best_score=get_fscore(current, fScore)
-    for loc in openSet:
-        if get_fscore(loc, fScore) < best_score:
-            current = loc
-            best_score=get_fscore(current, fScore)
-    return current
+    # if we've not gone 4 in a row then we can't turn
+    if current.dir_count<3:
+        if current.location[0] > 0 and current.direction==Direction.LEFT:
+            possible_neighbour=Node((current.location[0]-1,current.location[1]),Direction.LEFT,current.dir_count+1)
+            neighbours.append(possible_neighbour)
+        if current.location[0]+1 < limits[0] and current.direction==Direction.RIGHT:
+            possible_neighbour=Node((current.location[0]+1,current.location[1]),Direction.RIGHT,current.dir_count+1)
+            neighbours.append(possible_neighbour)
+        if current.location[1] > 0 and current.direction==Direction.UP:
+            possible_neighbour=Node((current.location[0],current.location[1]-1),Direction.UP,current.dir_count+1)
+            neighbours.append(possible_neighbour)
+        if current.location[1]+1 < limits[1] and current.direction==Direction.DOWN:
+            possible_neighbour=Node((current.location[0],current.location[1]+1),Direction.DOWN,current.dir_count+1)
+            neighbours.append(possible_neighbour)
+    elif current.dir_count>8: # if we've gone 10 in a row we must turn
+        if current.location[0] > 0 and current.direction!=Direction.LEFT and current.direction!=Direction.RIGHT:
+            possible_neighbour=Node((current.location[0]-1,current.location[1]),Direction.LEFT,0)
+            neighbours.append(possible_neighbour)
+        if current.location[0]+1 < limits[0] and current.direction!=Direction.LEFT and current.direction!=Direction.RIGHT:
+            possible_neighbour=Node((current.location[0]+1,current.location[1]),Direction.RIGHT,0)
+            neighbours.append(possible_neighbour)
+        if current.location[1] > 0 and current.direction!=Direction.UP and current.direction!=Direction.DOWN:
+            possible_neighbour=Node((current.location[0],current.location[1]-1),Direction.UP,0)
+            neighbours.append(possible_neighbour)
+        if current.location[1]+1 < limits[1] and current.direction!=Direction.UP and current.direction!=Direction.DOWN:
+            possible_neighbour=Node((current.location[0],current.location[1]+1),Direction.DOWN,0)
+            neighbours.append(possible_neighbour)
+    else:
+        if current.location[0] > 0 and current.direction!=Direction.RIGHT:
+            dir_count=0
+            if current.direction==Direction.LEFT:
+                dir_count=current.dir_count+1
+            possible_neighbour=Node((current.location[0]-1,current.location[1]),Direction.LEFT,dir_count)
+            neighbours.append(possible_neighbour)
+        if current.location[0]+1 < limits[0] and current.direction!=Direction.LEFT:
+            dir_count=0
+            if current.direction==Direction.RIGHT:
+                dir_count=current.dir_count+1
+            possible_neighbour=Node((current.location[0]+1,current.location[1]),Direction.RIGHT,dir_count)
+            neighbours.append(possible_neighbour)
+        if current.location[1] > 0 and current.direction!=Direction.DOWN:
+            dir_count=0
+            if current.direction==Direction.UP:
+                dir_count=current.dir_count+1
+            possible_neighbour=Node((current.location[0],current.location[1]-1),Direction.UP,dir_count)
+            neighbours.append(possible_neighbour)
+        if current.location[1]+1 < limits[1] and current.direction!=Direction.UP:
+            dir_count=0
+            if current.direction==Direction.DOWN:
+                dir_count=current.dir_count+1
+            possible_neighbour=Node((current.location[0],current.location[1]+1),Direction.DOWN,dir_count)
+            neighbours.append(possible_neighbour)
+    return neighbours
+
+def try_add_neighbour(current, neighbour, g_score, costs, openSet, goal):
+    # tentative_gScore is the distance from start to the neighbor through current
+    tentative_g_score = g_score[current] + d(neighbour, costs)
+    if not neighbour in g_score or tentative_g_score < g_score[neighbour]:
+        # This path to neighbour is better than any previous one. Record it!
+        neighbour.came_from = current
+        g_score[neighbour] = tentative_g_score
+        neighbour.f_score = tentative_g_score + h(neighbour, goal)
+        if neighbour not in openSet:
+            heapq.heappush(openSet, neighbour)
 
 # A* finds a path from start to goal.
 # h is the heuristic function. h(n) estimates the cost to reach goal from node n.
@@ -267,75 +325,34 @@ def a_star(start: Location, goal: Location, costs: dict[Location,int], limits: L
     # Initially, only the start node is known.
     # This is usually implemented as a min-heap or priority queue rather than a hash-set.
     openSet = []
-    start1 = Node(start,Direction.RIGHT,0)
-    start2 = Node(start,Direction.DOWN,0)
-    openSet.append(start1) 
-    openSet.append(start2)
-
-    # For node n, cameFrom[n] is the node immediately preceding it on the cheapest path from the start
-    # to n currently known.
-    cameFrom: dict[Node] = {} #an empty map
+    start1 = Node(start,Direction.RIGHT,-1)
+    start2 = Node(start,Direction.DOWN,-1)
+    start1.f_score = h(start1, goal)
+    start2.f_score = h(start2, goal)
+    heapq.heappush(openSet, start1)
+    heapq.heappush(openSet, start2)
 
     # For node n, gScore[n] is the cost of the cheapest path from start to n currently known.
-
-    gScore: dict[Node] = {} # map with default value of Infinity
-    gScore[start1] = 0
-    gScore[start2] = 0
-
-    # For node n, fScore[n] := gScore[n] + h(n). fScore[n] represents our current best guess as to
-    # how cheap a path could be from start to finish if it goes through n.
-    fScore = {} #map with default value of Infinity
-    set_fscore(start1, fScore, h(start1, goal))
-    set_fscore(start2, fScore, h(start2, goal))
+    g_score: dict[Node] = {}
+    g_score[start1]=0
+    g_score[start2]=0
 
     while len(openSet) > 0: #while openSet is not empty
         # This operation can occur in O(Log(N)) time if openSet is a min-heap or a priority queue
         # current := the node in openSet having the lowest fScore[] value
-        current = get_promising_current(openSet,fScore)
-
-        #path = reconstruct_path(cameFrom, current, costs)
-        #debug_print(path,costs,limits,fScore,gScore,openSet)
+        current = heapq.heappop(openSet)
 
         if current.location == goal:
-            path = reconstruct_path(cameFrom, current)
-            #debug_print(path,costs,limits,fScore,gScore,[])
+            path = reconstruct_path(current)
+            debug_print(path,costs,limits,[])
             return path
 
-        openSet.remove(current)
-
-        neighbours = []
-        if current.location[0] > 0 and current.direction!=Direction.RIGHT:
-            possible_neighbour=Node((current.location[0]-1,current.location[1]),Direction.LEFT,0)
-            if not would_be_four_in_a_row(current,possible_neighbour):
-                neighbours.append(possible_neighbour)
-        if current.location[0]+1 < limits[0] and current.direction!=Direction.LEFT:
-            possible_neighbour=Node((current.location[0]+1,current.location[1]),Direction.RIGHT,0)
-            if not would_be_four_in_a_row(current,possible_neighbour):
-                neighbours.append(possible_neighbour)
-        if current.location[1] > 0 and current.direction!=Direction.DOWN:
-            possible_neighbour=Node((current.location[0],current.location[1]-1),Direction.UP,0)
-            if not would_be_four_in_a_row(current,possible_neighbour):
-                neighbours.append(possible_neighbour)
-        if current.location[1]+1 < limits[1] and current.direction!=Direction.UP:
-            possible_neighbour=Node((current.location[0],current.location[1]+1),Direction.DOWN,0)
-            if not would_be_four_in_a_row(current,possible_neighbour):
-                neighbours.append(possible_neighbour)
+        neighbours = get_possible_neighbours(current, limits)   
 
         # for each neighbor of current
         for neighbour in neighbours:
+            try_add_neighbour(current, neighbour, g_score, costs, openSet, goal)
             
-            # tentative_gScore is the distance from start to the neighbor through current
-            tentative_gScore = gScore[current] + d(neighbour, costs)
-            if not neighbour in gScore or tentative_gScore < gScore[neighbour]:
-                # This path to neighbour is better than any previous one. Record it!
-                cameFrom[neighbour] = current
-                gScore[neighbour] = tentative_gScore
-                set_fscore(neighbour, fScore, tentative_gScore + h(neighbour, goal))
-                if neighbour not in openSet:
-                    openSet.append(neighbour)
-
-                #path = reconstruct_path(cameFrom, current, costs)
-                #debug_print(path,costs,limits,fScore,gScore,openSet)
 
     # Open set is empty but goal was never reached
     print("failure :(")
