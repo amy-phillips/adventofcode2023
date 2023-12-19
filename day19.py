@@ -779,7 +779,9 @@ sxx{a>3455:A,R}
 {x=301,m=2748,a=739,s=766}
 {x=127,m=18,a=141,s=1398}"""
 
+
 from enum import Enum
+import copy
 
 lines = input.split('\n')
 
@@ -813,17 +815,27 @@ class Workflow:
         self.name = _name
         self.instructions = _instructions
 
-class Part:
-    values: dict[xmas,int] = {}
+type Range = tuple[int,int]
 
-    def __init__(self, _values: dict[xmas,int]):
-        self.values = _values
+class PartRange:
+    values: dict[xmas,Range] = {}
+    destination:str = None
+
+    def __init__(self, _range: Range, _destination: str):
+        self.values[xmas.X]=_range
+        self.values[xmas.M]=_range
+        self.values[xmas.A]=_range
+        self.values[xmas.S]=_range
+        self.destination = _destination
 
     def total(self):
-        total = 0
+        total = 1
         for value in self.values.values():
-            total+=value
+            total*=value[1]-value[0]+1
         return total
+    
+    def __str__(self):
+        return f"X{self.values[xmas.X]} M{self.values[xmas.M]} A{self.values[xmas.A]} S{self.values[xmas.S]} {self.destination}"
 
 
 def parse_workflows(lines):
@@ -862,29 +874,6 @@ def parse_workflows(lines):
         
     return workflows,line_i+1
 
-def parse_parts(lines,line_i):
-    parts:list[Part] = []
-    for line_i in range(line_i,len(lines)):
-        line = lines[line_i]
-
-        values: dict[xmas,int] = {}
-        line=line.replace('{','')
-        line=line.replace('}','')
-        variables=line.split(',')
-        for variable in variables:
-            if variable[0]=='x':
-                values[xmas.X]=int(variable[2:])
-            elif variable[0]=='m':
-                values[xmas.M]=int(variable[2:])
-            elif variable[0]=='a':
-                values[xmas.A]=int(variable[2:])
-            elif variable[0]=='s':
-                values[xmas.S]=int(variable[2:])
-        parts.append(Part(values))
-    return parts
-
-
-
 def find_workflow_index(name:str, workflows:list[Workflow]) -> int:
     for w_idx,workflow in enumerate(workflows):
         if workflow.name == name:
@@ -892,55 +881,84 @@ def find_workflow_index(name:str, workflows:list[Workflow]) -> int:
             
     return -1
 
-def test_instruction(part: Part, instruction: Instruction) -> str:
+def test_instruction(range: PartRange, instruction: Instruction) -> str:
     if instruction.variable == xmas.ALL:
-        # we've hit the catch all
-        return instruction.destination
+        # we've hit the catch all - everything goes there
+        range.destination = instruction.destination
+        return [range]
     
-    part_value = part.values[instruction.variable]
+    # does the threshold split this range?
+    part_range = range.values[instruction.variable]
     if instruction.less_than:
-        if part_value < instruction.threshold:
-            return instruction.destination
+        if part_range[1] < instruction.threshold: # range is entirely below
+            range.destination = instruction.destination
+            return [range]
+        elif part_range[0] > instruction.threshold: # range is entirely above
+            range.destination = None
+            return [range]
     else:
-        if part_value > instruction.threshold:
-            return instruction.destination
+        if part_range[0] > instruction.threshold: # range is entirely above
+            range.destination = instruction.destination
+            return [range]
+        elif part_range[1] < instruction.threshold: # range is entirely below
+            range.destination = None
+            return [range]
         
-    return None
+    # got to split this range 
+    if instruction.less_than:
+        split_value = instruction.threshold-1
+    else:
+        split_value = instruction.threshold
+
+    range.destination=None
+
+    low_range = copy.deepcopy(range)
+    low_range.values = copy.deepcopy(range.values)
+    low_range.values[instruction.variable] = (low_range.values[instruction.variable][0],split_value)
+
+    # use range for high_range
+    range.values[instruction.variable] = (split_value+1,range.values[instruction.variable][1])
+    
+    if instruction.less_than:
+        low_range.destination = instruction.destination
+    else:
+        range.destination = instruction.destination
+
+    return [low_range, range]
+
 
 def run():
     workflows,line_i=parse_workflows(lines)
-    parts=parse_parts(lines,line_i)
-
+    ranges = [PartRange((1,4000), "in")]
 
     total = 0
-    start_workflow_idx = find_workflow_index("in", workflows)
-    for part in parts:
-        w_idx = start_workflow_idx
-        print(f"{part.values[xmas.X]}",end="")
-        while w_idx >= 0:
-            workflow = workflows[w_idx]
-            for instruction in workflow.instructions:
-                next_instruction = test_instruction(part,instruction)
-                if next_instruction is None:
-                    # not this instruction - onto the next
-                    continue
-                print(f" => {next_instruction}",end="")
-                if next_instruction == "A":
-                    # accept this part
-                    w_idx = -1
-                    print("")
-                    part_total = part.total()
-                    print(part_total)
-                    total+=part_total
-                    break
-                elif next_instruction == 'R':
-                    # reject this part
-                    w_idx = -1
-                    print("")
-                    break
+    while len(ranges) > 0:
+        in_range = ranges.pop()
+        if in_range.destination == 'A':
+            # accept this part
+            print(" - accepted")
+            part_total = in_range.total()
+            print(part_total)
+            total+=part_total
+            continue
+        elif in_range.destination == 'R':
+            # reject this part
+            print(" - rejected")
+            continue
+        w_idx = find_workflow_index(in_range.destination, workflows)
+        print(f"{in_range}")
+        workflow = workflows[w_idx]
+        for instruction in workflow.instructions:
+            # split range -> ranges to continue with
+            ranges_out = test_instruction(in_range,instruction)
+            for r_out in ranges_out:
+                print(f"{r_out}")
+                if r_out.destination is not None:
+                    ranges.append(r_out) # this has a destination, so pop it on the outer queue to be dealt with
                 else:
-                    w_idx = find_workflow_index(next_instruction, workflows)
-                    break
+                    # onto the next instruction for this one
+                    in_range = r_out
+           
     print(total)
             
 run()
