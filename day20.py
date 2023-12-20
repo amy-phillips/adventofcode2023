@@ -150,23 +150,36 @@ def parse_nodes(input):
     
     return nodes, broadcaster_index
 
-low_pulses = 0
-high_pulses = 0
+button_presses:int = 0
+conj_high: dict[int, list[int]] = {}
 
 def do_pulse(origin_index: int, target_index: int, pulse_is_high: bool, nodes: list[Node], next_node_pulses: list[NodePulse]):
     #print(f"{nodes[origin_index].name} -{pulse_is_high}-> {target_index} ",end="")
 
-    global low_pulses
-    global high_pulses
-
-    if pulse_is_high:
-        high_pulses+=1
-    else:
-        low_pulses+=1
-
     if target_index == -1:
         # chuck this one away
-        print(" THROW AWAY")
+        if not pulse_is_high:
+            print(button_presses)
+            exit(0)
+
+        # ok, so we're tracking a conjunction -  we want all the inputs to be high so we get a low
+        # let's see if there's a periodic repeat for each
+        missing = False
+        for conj_in in nodes[origin_index].conjunction_inputs:
+            if nodes[origin_index].conjunction_inputs[conj_in]:
+                if not conj_in in conj_high:
+                    conj_high[conj_in] = []
+                conj_high[conj_in].append(button_presses)
+            else:
+                missing = True
+        if not missing:
+            total:int = 1
+            for conj_in in nodes[origin_index].conjunction_inputs:
+                total *= conj_high[conj_in][0]
+            print(total)
+        
+        
+        
     else:
         #print(f"{nodes[target_index].name}")
         next_node_pulses.append(NodePulse(origin_index, nodes[target_index], pulse_is_high))
@@ -221,15 +234,12 @@ def press_button(nodes: list[Node], broadcaster_index:int):
 
 
 def run():
-    global low_pulses
-    global high_pulses
+    global button_presses
 
     nodes, broadcaster_index = parse_nodes(input)
 
-    for i in range(0,1000):
-        low_pulses+=1 # the button press
+    while(True):
+        button_presses+=1 
         press_button(nodes, broadcaster_index)
-    
-    print(f"high pulses {high_pulses} low pulses {low_pulses} product {high_pulses*low_pulses}")
 
 run()
