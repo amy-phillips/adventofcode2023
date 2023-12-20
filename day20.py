@@ -164,19 +164,22 @@ def do_pulse(origin_index: int, target_index: int, pulse_is_high: bool, nodes: l
 
         # ok, so we're tracking a conjunction -  we want all the inputs to be high so we get a low
         # let's see if there's a periodic repeat for each
-        missing = False
         for conj_in in nodes[origin_index].conjunction_inputs:
             if nodes[origin_index].conjunction_inputs[conj_in]:
                 if not conj_in in conj_high:
                     conj_high[conj_in] = []
                 conj_high[conj_in].append(button_presses)
-            else:
+                
+        missing = False
+        for conj_in in nodes[origin_index].conjunction_inputs:
+            if not conj_in in conj_high:
                 missing = True
         if not missing:
             total:int = 1
             for conj_in in nodes[origin_index].conjunction_inputs:
                 total *= conj_high[conj_in][0]
             print(total)
+            exit(0)
         
         
         
