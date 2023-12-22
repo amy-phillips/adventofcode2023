@@ -40,6 +40,9 @@ type Garden = dict[Location,str]
 
 import cProfile
 import unittest
+from enum import Enum
+import copy 
+import math
 
 def parse_map(input: str):
     garden_map: dict[LocationInMapTile,character] = {}
@@ -96,40 +99,102 @@ def debug_print(positions: list[Location], garden_map: Garden, extents: tuple[in
         print("") # newline
     print("") # newline
 
+class TileType(Enum):
+    CENTRE = 0
+    LEFT = 1
+    RIGHT = 2
+    UP = 3
+    DOWN = 4
+    UP_LEFT = 5
+    UP_RIGHT = 6
+    DOWN_LEFT = 7
+    DOWN_RIGHT = 8
+    OTHER = 9
+
 class PositionCache:
+
     tile_caches: dict[MapTile,dict[int,int]] = {}
     all_positions_seen: dict[MapTile,list[set[LocationInMapTile]]] = {}
+    loops_found: dict[MapTile,set[int]] = {}
+
+    def tile_to_tiletype(self, tile: MapTile) -> TileType:
+        if tile[0] == 0 and tile[1] == 0:
+            return TileType.CENTRE
+        if tile[0] == 0 and tile[1] > 0:
+            return TileType.DOWN
+        if tile[0] == 0 and tile[1] < 0:
+            return TileType.UP
+        if tile[0] < 0 and tile[1] == 0:
+            return TileType.LEFT
+        if tile[0] > 0 and tile[1] == 0:
+            return TileType.RIGHT
+        if tile[0] == tile[1] and tile[0] > 0:
+            return TileType.DOWN_RIGHT
+        if tile[0] == tile[1] and tile[0] < 0:
+            return TileType.UP_LEFT
+        return TileType.OTHER
+        
+    def normalise_tile_direction(self, tile: MapTile):
+        if tile[0] == 0 and tile[1] == 0:
+            return (0,0)
+        length = math.sqrt(tile[0]*tile[0] + tile[1]*tile[1])
+        # is this an even or odd tile?
+        if tile[0]%2 == 0:
+            even1=True
+        else:
+            even1=False
+        if tile[1]%2 == 0:
+            even2=True
+        else:
+            even2=False
+        return tile #(even1, even2, tile[0]/length, tile[1]/length)
 
     def gethashkey(self, current_positions: frozenset[LocationInMapTile]):
-        return hash(frozenset(current_positions))
+        strip_pos = set()
+        for pos in current_positions:
+            strip_pos.add(pos[0]) # just want the in-tile-location, don't care which tile we're in
+        return hash(str(strip_pos))
 
-    def add_positions(self, current_positions: frozenset[LocationInMapTile], tile: MapTile):
-        # gonna keep a separate cache per maptile - maybe can share in same direction.... maybe??
-        if not tile in self.tile_caches:
-            self.tile_caches[tile] = {}
-            self.all_positions_seen[tile] = []
-        tile_cache = self.tile_caches[tile]
+    def add_positions(self, current_positions: set[LocationInMapTile], next_positions: set[LocationInMapTile], tile: MapTile):
+        # erm assumptions about all tiles being the same...?
+        lookup_tile = self.normalise_tile_direction(tile)
+        if not lookup_tile in self.tile_caches:
+            self.tile_caches[lookup_tile] = {}
+            self.all_positions_seen[lookup_tile] = []
+        tile_cache = self.tile_caches[lookup_tile]
         cache_key = self.gethashkey(current_positions)
         if cache_key in tile_cache:
             # don't overwrite cache entry, we're rounding a loop!
             return
-        self.all_positions_seen[tile].append(current_positions)
-        tile_cache[cache_key] = len(self.all_positions_seen[tile])-1
+        self.all_positions_seen[lookup_tile].append(copy.deepcopy(next_positions))
+        tile_cache[cache_key] = len(self.all_positions_seen[lookup_tile])-1
 
-    def get_next_positions(self, current_positions: frozenset[LocationInMapTile], tile: MapTile):
+    def get_next_positions(self, current_positions: set[LocationInMapTile], tile: MapTile):
+        lookup_tile = self.normalise_tile_direction(tile)
         # gonna keep a separate cache per maptile - maybe can share in same direction.... maybe??
-        if not tile in self.tile_caches:
+        if not lookup_tile in self.tile_caches:
             return None
-        tile_cache = self.tile_caches[tile]
+        tile_cache = self.tile_caches[lookup_tile]
         cache_key = self.gethashkey(current_positions)
         if cache_key in tile_cache:
             same_as_step = tile_cache[cache_key]
-            if same_as_step+1 < len(self.all_positions_seen[tile]):
-                # so next up is same_as_step+1
-                #print(f"{tile}: cache match on step {same_as_step} == {len(self.all_positions_seen[tile])}  {cache_key}")
-                return self.all_positions_seen[tile][same_as_step+1]
+            #print(f"{tile}: cache match on step {same_as_step} == {len(self.all_positions_seen[lookup_tile])}  {cache_key}")
+            if not tile in self.loops_found:
+                self.loops_found[tile] = set()
+            self.loops_found[tile].add(cache_key)
+            return self.all_positions_seen[lookup_tile][same_as_step]
         return None
 
+    def dump_cache_stats(self):
+        loops_found_to_tiles = {}
+        for lookup_tile in self.loops_found:
+            key = str(self.loops_found[lookup_tile])
+            if not key in loops_found_to_tiles:
+                loops_found_to_tiles[key] = set()
+            loops_found_to_tiles[key].add(lookup_tile)
+
+        for loop in loops_found_to_tiles:
+            print(f"cache run {loop} in {loops_found_to_tiles[loop]}")
 
 
 def run(step_count:int):
@@ -151,12 +216,14 @@ def run(step_count:int):
                         if not pos[1] in next_positions:
                             next_positions[pos[1]] = set()
                         next_positions[pos[1]].add(pos)
-                steps_cache.add_positions(next_positions[map_tile],map_tile)
+                steps_cache.add_positions(map_tile_positions,next_positions[map_tile],map_tile)
             else:
                 next_positions[map_tile] = cached_positions
 
         positions,next_positions = next_positions,positions # swap lists
-        
+
+    steps_cache.dump_cache_stats()
+
     #debug_print(positions, garden_map, extents)
     total=0
     for positions_in_tile in positions.values():
@@ -198,4 +265,4 @@ class TestSmallerRuns(unittest.TestCase):
 
 if __name__ == '__main__':
     #unittest.main()
-    cProfile.run("run(500)")
+    cProfile.run("run(400)")
