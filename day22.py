@@ -1669,8 +1669,31 @@ def shift_bricks_down(bricks):
                 moved_brick = True
                 bricks[brick_index] = Brick((brick.low_corner[0],brick.low_corner[1],brick.low_corner[2]-move_down_amount),(brick.high_corner[0]-1,brick.high_corner[1]-1,brick.high_corner[2]-move_down_amount-1), brick.name)
 
+def disintegrate_brick(brick_to_disintegrate: Brick, bricks_block_supported_by: dict[Brick,set[Brick]]) -> int:
+    bricks_disintegrated: set[Brick] = set()
+    bricks_disintegrated.add(brick_to_disintegrate)
+    disintegrated_another_brick = True
+    while(disintegrated_another_brick) :
+        disintegrated_another_brick = False
+        for brick, supports in bricks_block_supported_by.items():
+            if brick in bricks_disintegrated:
+                continue # already done this one
+            if len(supports) == 0:
+                continue # this one is already on the ground
+            # have all the supports gone?
+            supports_disintegrated = supports.intersection(bricks_disintegrated)
+            if len(supports_disintegrated) == len(supports):
+                # byebye!
+                bricks_disintegrated.add(brick)
+                disintegrated_another_brick = True
+    return len(bricks_disintegrated)-1 # don't count the initial brick in the number disintegrated
+
+
+
 def get_bricks_to_disintegrate(bricks: list[Brick]) -> set[Brick]:
-    do_not_disintegrate: set[Brick] = set()
+    
+    bricks_that_cause_collapse: set[Brick] = set()
+    bricks_block_supported_by: dict[Brick,set[Brick]] = {} # maps brick index to the set of bricks that support this brick
     for brick in bricks:
         bricks_i_am_supported_by: set[Brick] = set()
         # collide downwards
@@ -1690,8 +1713,19 @@ def get_bricks_to_disintegrate(bricks: list[Brick]) -> set[Brick]:
                 bricks_i_am_supported_by.add(downwards_brick)
 
         if len(bricks_i_am_supported_by) == 1:
-            do_not_disintegrate.update(bricks_i_am_supported_by)
-    return set(bricks) - do_not_disintegrate
+            bricks_that_cause_collapse.update(bricks_i_am_supported_by)
+
+        bricks_block_supported_by[brick] = bricks_i_am_supported_by
+
+    total = 0
+    # for each of these blocks, follow the trail, and see what falls
+    for brick in bricks_that_cause_collapse:
+        fallout = disintegrate_brick(brick, bricks_block_supported_by)
+        print(fallout)
+        total+=fallout
+    print(total)
+
+    return bricks_that_cause_collapse
 
 
 def run(use_input: str):
@@ -1704,7 +1738,6 @@ def run(use_input: str):
     #debug_print(bricks)
 
     diediedie = get_bricks_to_disintegrate(bricks)
-    print(len(diediedie))
         
 
 class TestBlockIntersection(unittest.TestCase):
@@ -1757,5 +1790,5 @@ class TestBlockIntersection(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    run(test_input)
+    run(actual_input)
     #unittest.main()
